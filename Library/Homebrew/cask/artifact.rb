@@ -11,6 +11,7 @@ require "cask/artifact/font"
 require "cask/artifact/input_method"
 require "cask/artifact/installer"
 require "cask/artifact/internet_plugin"
+require "cask/artifact/keyboard_layout"
 require "cask/artifact/manpage"
 require "cask/artifact/vst_plugin"
 require "cask/artifact/vst3_plugin"
@@ -21,6 +22,9 @@ require "cask/artifact/prefpane"
 require "cask/artifact/qlplugin"
 require "cask/artifact/mdimporter"
 require "cask/artifact/screen_saver"
+require "cask/artifact/bashcompletion"
+require "cask/artifact/fishcompletion"
+require "cask/artifact/zshcompletion"
 require "cask/artifact/service"
 require "cask/artifact/stage_only"
 require "cask/artifact/suite"
@@ -29,8 +33,6 @@ require "cask/artifact/zap"
 
 module Cask
   # Module containing all cask artifact classes.
-  #
-  # @api private
   module Artifact
   end
 end

@@ -1,13 +1,15 @@
-# typed: true
+# typed: strict
 # frozen_string_literal: true
+
+require "livecheck/strategic"
 
 module Homebrew
   module Livecheck
     module Strategy
-      # The {Json} strategy fetches content at a URL, parses it as JSON, and
+      # The {Json} strategy fetches content at a URL, parses it as JSON and
       # provides the parsed data to a `strategy` block. If a regex is present
       # in the `livecheck` block, it should be passed as the second argument to
-      # the  `strategy` block.
+      # the `strategy` block.
       #
       # This is a generic strategy that doesn't contain any logic for finding
       # versions, as the structure of JSON data varies. Instead, a `strategy`
@@ -23,7 +25,7 @@ module Homebrew
       #
       # @api public
       class Json
-        extend T::Sig
+        extend Strategic
 
         NICE_NAME = "JSON"
 
@@ -33,7 +35,7 @@ module Homebrew
         PRIORITY = 0
 
         # The `Regexp` used to determine if the strategy applies to the URL.
-        URL_MATCH_REGEX = %r{^https?://}i.freeze
+        URL_MATCH_REGEX = %r{^https?://}i
 
         # Whether the strategy can be applied to the provided URL.
         # {Json} will technically match any HTTP URL but is only usable with
@@ -41,14 +43,29 @@ module Homebrew
         #
         # @param url [String] the URL to match against
         # @return [Boolean]
-        sig { params(url: String).returns(T::Boolean) }
+        sig { override.params(url: String).returns(T::Boolean) }
         def self.match?(url)
           URL_MATCH_REGEX.match?(url)
         end
 
+        # Parses JSON text and returns the parsed data.
+        # @param content [String] the JSON text to parse
+        sig { params(content: String).returns(T.untyped) }
+        def self.parse_json(content)
+          require "json"
+
+          begin
+            JSON.parse(content)
+          rescue JSON::ParserError
+            raise "Content could not be parsed as JSON."
+          end
+        end
+
         # Parses JSON text and identifies versions using a `strategy` block.
-        # If a regex is provided, it will be passed as the second argument to
-        # the  `strategy` block (after the parsed JSON data).
+        # If the block has two parameters, the parsed JSON data will be used as
+        # the first argument and the regex (if any) will be the second.
+        # Otherwise, only the parsed JSON data will be passed to the block.
+        #
         # @param content [String] the JSON text to parse and check
         # @param regex [Regexp, nil] a regex used for matching versions in the
         #   content
@@ -57,23 +74,17 @@ module Homebrew
           params(
             content: String,
             regex:   T.nilable(Regexp),
-            block:   T.untyped,
+            block:   T.nilable(Proc),
           ).returns(T::Array[String])
         }
         def self.versions_from_content(content, regex = nil, &block)
-          return [] if content.blank? || block.blank?
+          return [] if content.blank? || !block_given?
 
-          require "json"
-          json = begin
-            JSON.parse(content)
-          rescue JSON::ParserError
-            raise "Content could not be parsed as JSON."
-          end
+          json = parse_json(content)
+          return [] if json.blank?
 
-          block_return_value = if regex.present?
+          block_return_value = if block.arity == 2
             yield(json, regex)
-          elsif block.arity == 2
-            raise "Two arguments found in `strategy` block but no regex provided."
           else
             yield(json)
           end
@@ -87,29 +98,28 @@ module Homebrew
         # @param regex [Regexp, nil] a regex used for matching versions
         # @param provided_content [String, nil] page content to use in place of
         #   fetching via `Strategy#page_content`
-        # @param homebrew_curl [Boolean] whether to use brewed curl with the URL
+        # @param options [Options] options to modify behavior
         # @return [Hash]
         sig {
-          params(
+          override.params(
             url:              String,
             regex:            T.nilable(Regexp),
             provided_content: T.nilable(String),
-            homebrew_curl:    T::Boolean,
-            _unused:          T.nilable(T::Hash[Symbol, T.untyped]),
-            block:            T.untyped,
-          ).returns(T::Hash[Symbol, T.untyped])
+            options:          Options,
+            block:            T.nilable(Proc),
+          ).returns(T::Hash[Symbol, T.anything])
         }
-        def self.find_versions(url:, regex: nil, provided_content: nil, homebrew_curl: false, **_unused, &block)
-          raise ArgumentError, "#{T.must(name).demodulize} requires a `strategy` block" if block.blank?
+        def self.find_versions(url:, regex: nil, provided_content: nil, options: Options.new, &block)
+          raise ArgumentError, "#{Utils.demodulize(name)} requires a `strategy` block" unless block_given?
 
-          match_data = { matches: {}, regex: regex, url: url }
-          return match_data if url.blank? || block.blank?
+          match_data = { matches: {}, regex:, url: }
+          return match_data if url.blank?
 
           content = if provided_content.is_a?(String)
             match_data[:cached] = true
             provided_content
           else
-            match_data.merge!(Strategy.page_content(url, homebrew_curl: homebrew_curl))
+            match_data.merge!(Strategy.page_content(url, options:))
             match_data[:content]
           end
           return match_data if content.blank?
